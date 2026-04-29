@@ -1,0 +1,100 @@
+# version: '3.8'
+
+# ─────────────────────────────────────────────────────────────
+# Kafka stack
+# Kafka 3.7 + Confluent Schema Registry 7.6 + Kafka UI
+# ─────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Kafka broker running in KRaft (combined broker+controller) ──
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    hostname: kafka
+    container_name: kafka
+    ports:
+      - "9092:9092"     # client connections from your Mac
+      - "9101:9101"     # JMX (optional, for monitoring)
+    environment:
+      # KRaft settings — no Zookeeper needed
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller          # single node does both
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093  # self as controller
+
+      # Listeners
+      # PLAINTEXT        → inter-container traffic (e.g. schema-registry → kafka)
+      # PLAINTEXT_HOST   → your Mac → container traffic
+      # CONTROLLER       → internal KRaft controller traffic
+      KAFKA_LISTENERS: PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # Topic defaults
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_NUM_PARTITIONS: 6                         # default partitions for new topics
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+
+      # Log retention — keep events for 7 days locally
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+
+      # Cluster ID — must be a valid base64 UUID, fixed so restarts work
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ── Schema Registry ──
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.1
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy     # waits until Kafka is ready
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:29092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ── Kafka UI — browser dashboard at localhost:8080 ──
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    platform: linux/amd64
+    container_name: kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local-kraft
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+      DYNAMIC_CONFIG_ENABLED: 'true'
+
+volumes:
+  kafka_data:
+    driver: local

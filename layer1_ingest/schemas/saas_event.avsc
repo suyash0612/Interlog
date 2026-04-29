@@ -1,0 +1,55 @@
+{
+  "type": "record",
+  "name": "SaasEvent",
+  "namespace": "com.saasplatform.events",
+  "doc": "Core behavioral event emitted by the SaaS platform SDK",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string",
+      "doc": "UUID v4 — unique per event, used for dedup downstream"
+    },
+    {
+      "name": "tenant_id",
+      "type": "string",
+      "doc": "Account identifier — top-level isolation boundary"
+    },
+    {
+      "name": "user_id",
+      "type": "string",
+      "doc": "User within the tenant — combined with tenant_id for partition key"
+    },
+    {
+      "name": "event_type",
+      "type": "string",
+      "doc": "String not enum — enums break forward compatibility when new types are added"
+    },
+    {
+      "name": "feature_name",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Only set for FEATURE_CLICK events. null union allows optional field."
+    },
+    {
+      "name": "timestamp_ms",
+      "type": "long",
+      "doc": "Event time in milliseconds UTC — used for watermarking in Flink (Layer 2)"
+    },
+    {
+      "name": "plan_tier",
+      "type": "string",
+      "doc": "Tenant plan at event time — denormalized here to avoid joins in stream layer"
+    },
+    {
+      "name": "session_id",
+      "type": "string",
+      "doc": "Client-generated session token — used by Flink for session stitching"
+    },
+    {
+      "name": "properties",
+      "type": {"type": "map", "values": "string"},
+      "default": {},
+      "doc": "Escape hatch for ad-hoc properties — kept as strings to avoid schema churn"
+    }
+  ]
+}
